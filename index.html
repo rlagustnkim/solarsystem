@@ -3,10 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Solar System</title>
+    <title>3D Solar System with Labels</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; }
         canvas { display: block; }
+        
+        /* 행성 이름표 스타일 */
+        .label {
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 4px 8px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: bold;
+            pointer-events: none; /* 클릭 방해 금지 */
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
     </style>
 
     <script type="importmap">
