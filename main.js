@@ -1,134 +1,115 @@
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
 
-// 1. Scene & Camera Setup
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 50000);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-// 2. CSS2D Label Renderer Setup
-const labelRenderer = new CSS2DRenderer();
-labelRenderer.setSize(window.innerWidth, window.innerHeight);
-labelRenderer.domElement.style.position = 'absolute';
-labelRenderer.domElement.style.top = '0px';
-document.body.appendChild(labelRenderer.domElement);
+// --- 상호작용을 위한 상태 변수 ---
+let scale = 1;          // 확대/축소 비율
+let offsetX = 0;        // 화면 가로 이동 거리
+let offsetY = 0;        // 화면 세로 이동 거리
+let isDragging = false; // 드래그 상태 확인
+let lastMouseX = 0;
+let lastMouseY = 0;
 
-const controls = new OrbitControls(camera, renderer.domElement);
-camera.position.set(0, 1000, 2000);
-controls.update();
-
-const textureLoader = new THREE.TextureLoader();
-
-// 3. Lighting
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-scene.add(ambientLight);
-const sunLight = new THREE.PointLight(0xffffff, 150000, 15000);
-scene.add(sunLight);
-
-// 4. Planet Data (Inclination, Axial Tilt, Colors)
-const planetsData = [
-    { name: "mercury", radius: 7, distance: 180, speed: 0.04, inclination: 7.0, tilt: 0.03, color: 0x999999, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/mercury.jpg' },
-    { name: "venus", radius: 13, distance: 260, speed: 0.015, inclination: 3.4, tilt: 177.3, color: 0xffd393, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/venus_surface.jpg' },
-    { name: "earth", radius: 14, distance: 350, speed: 0.01, inclination: 0.0, tilt: 23.5, color: 0x2277ff, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg' },
-    { name: "mars", radius: 9, distance: 450, speed: 0.008, inclination: 1.85, tilt: 25.2, color: 0xff4000, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/mars.jpg' },
-    { name: "jupiter", radius: 55, distance: 700, speed: 0.002, inclination: 1.3, tilt: 3.1, color: 0xe3a869, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/jupiter.jpg' },
-    { name: "saturn", radius: 46, distance: 950, speed: 0.0009, inclination: 2.5, tilt: 26.7, color: 0xf5e1a4, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/saturn.jpg', hasRing: true },
-    { name: "uranus", radius: 26, distance: 1150, speed: 0.0004, inclination: 0.77, tilt: 97.8, color: 0xb4e8f0, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/uranus.jpg' },
-    { name: "neptune", radius: 25, distance: 1350, speed: 0.0001, inclination: 1.77, tilt: 28.3, color: 0x3d5eff, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/neptune.jpg' }
+// 행성 데이터 (기존 데이터 구조 유지)
+const planets = [
+    { name: "Sun", color: "yellow", radius: 40, distance: 0, speed: 0, angle: 0 },
+    { name: "Mercury", color: "gray", radius: 5, distance: 70, speed: 0.047, angle: Math.random() * Math.PI * 2 },
+    { name: "Venus", color: "orange", radius: 10, distance: 100, speed: 0.035, angle: Math.random() * Math.PI * 2 },
+    { name: "Earth", color: "blue", radius: 11, distance: 140, speed: 0.029, angle: Math.random() * Math.PI * 2 },
+    { name: "Mars", color: "red", radius: 8, distance: 180, speed: 0.024, angle: Math.random() * Math.PI * 2 },
+    { name: "Jupiter", color: "brown", radius: 25, distance: 260, speed: 0.013, angle: Math.random() * Math.PI * 2 },
+    { name: "Saturn", color: "khaki", radius: 20, distance: 340, speed: 0.009, angle: Math.random() * Math.PI * 2 },
+    { name: "Uranus", color: "lightblue", radius: 15, distance: 400, speed: 0.006, angle: Math.random() * Math.PI * 2 },
+    { name: "Neptune", color: "darkblue", radius: 14, distance: 460, speed: 0.005, angle: Math.random() * Math.PI * 2 },
 ];
 
-const meshes = {};
-const orbitGroups = {};
+// --- 마우스 이벤트 리스너 추가 ---
 
-// 5. Sun Setup
-const sunGeometry = new THREE.SphereGeometry(140, 64, 64);
-const sunMaterial = new THREE.MeshStandardMaterial({
-    emissive: 0xff3300, emissiveIntensity: 2, color: 0xffaa00
+// 1. 휠 이벤트 (확대/축소)
+canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const zoomSpeed = 0.001;
+    scale -= e.deltaY * zoomSpeed;
+    scale = Math.min(Math.max(0.1, scale), 5); // 최소 0.1배 ~ 최대 5배 제한
+}, { passive: false });
+
+// 2. 마우스 클릭 시작 (드래그 시작)
+canvas.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
 });
-textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/sun.jpg', (tex) => {
-    sunMaterial.map = tex; sunMaterial.emissiveMap = tex; sunMaterial.needsUpdate = true;
-});
-const sunMesh = new THREE.Mesh(sunGeometry, sunMaterial);
-scene.add(sunMesh);
-meshes["sun"] = sunMesh;
 
-// 6. Creating Planets with Labels
-planetsData.forEach(data => {
-    // 공전 궤도 그룹 (Inclination 반영)
-    const orbitGroup = new THREE.Group();
-    orbitGroup.rotation.z = THREE.MathUtils.degToRad(data.inclination);
-    scene.add(orbitGroup);
-    orbitGroups[data.name] = orbitGroup;
-
-    // 자전축 기울기 그룹 (Axial Tilt 반영)
-    const tiltGroup = new THREE.Group();
-    tiltGroup.position.x = data.distance;
-    tiltGroup.rotation.z = THREE.MathUtils.degToRad(data.tilt);
-    orbitGroup.add(tiltGroup);
-
-    // 행성 메쉬
-    const geometry = new THREE.SphereGeometry(data.radius, 64, 64);
-    const material = new THREE.MeshStandardMaterial({ color: data.color, roughness: 0.7 });
-    textureLoader.load(data.texture, (tex) => { material.map = tex; material.needsUpdate = true; });
-
-    const mesh = new THREE.Mesh(geometry, material);
-    tiltGroup.add(mesh);
-    meshes[data.name] = mesh;
-
-    // 이름표 (Label) 생성 및 부착
-    const labelDiv = document.createElement('div');
-    labelDiv.className = 'label';
-    labelDiv.textContent = data.name;
-    const labelObject = new CSS2DObject(labelDiv);
-    labelObject.position.set(0, data.radius + 15, 0); // 행성 위에 띄움
-    mesh.add(labelObject); // 행성을 따라다님
-
-    // 궤도 라인 강조
-    const orbitLineGeom = new THREE.RingGeometry(data.distance - 1, data.distance + 1, 512);
-    const orbitLineMat = new THREE.MeshBasicMaterial({ color: data.color, side: THREE.DoubleSide, transparent: true, opacity: 0.25 });
-    const orbitLine = new THREE.Mesh(orbitLineGeom, orbitLineMat);
-    orbitLine.rotation.x = Math.PI / 2;
-    orbitGroup.add(orbitLine);
-
-    // 토성 고리
-    if (data.hasRing) {
-        const ringGeom = new THREE.RingGeometry(data.radius * 1.4, data.radius * 2.5, 128);
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0xd8c291, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
-        const ringMesh = new THREE.Mesh(ringGeom, ringMat);
-        ringMesh.rotation.x = Math.PI / 2;
-        mesh.add(ringMesh);
+// 3. 마우스 이동 (시점 이동)
+window.addEventListener("mousemove", (e) => {
+    if (isDragging) {
+        const dx = e.clientX - lastMouseX;
+        const dy = e.clientY - lastMouseY;
+        
+        offsetX += dx;
+        offsetY += dy;
+        
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
     }
 });
 
-// 7. Animation & Rendering
-function animate() {
-    requestAnimationFrame(animate);
-
-    // 자전
-    Object.values(meshes).forEach(mesh => {
-        mesh.rotation.y += 0.005;
-    });
-
-    // 공전
-    planetsData.forEach(data => {
-        if (orbitGroups[data.name]) {
-            orbitGroups[data.name].rotation.y += data.speed;
-        }
-    });
-
-    controls.update();
-    renderer.render(scene, camera);
-    labelRenderer.render(scene, camera);
-}
-
-window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    labelRenderer.setSize(window.innerWidth, window.innerHeight);
+// 4. 마우스 클릭 해제
+window.addEventListener("mouseup", () => {
+    isDragging = false;
 });
 
-animate();
+function draw() {
+    // 배경 초기화
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save(); // 현재 캔버스 상태 저장
+    
+    // 화면 중앙 설정 및 마우스 조작(확대/이동) 적용
+    ctx.translate(canvas.width / 2 + offsetX, canvas.height / 2 + offsetY);
+    ctx.scale(scale, scale);
+
+    planets.forEach((planet) => {
+        // 공전 궤도 그리기
+        if (planet.distance > 0) {
+            ctx.beginPath();
+            ctx.arc(0, 0, planet.distance, 0, Math.PI * 2);
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+            ctx.stroke();
+        }
+
+        // 행성 위치 계산
+        const x = Math.cos(planet.angle) * planet.distance;
+        const y = Math.sin(planet.angle) * planet.distance;
+
+        // 행성 그리기
+        ctx.beginPath();
+        ctx.arc(x, y, planet.radius, 0, Math.PI * 2);
+        ctx.fillStyle = planet.color;
+        ctx.fill();
+
+        // 행성 이름 표시 (확대해도 글자 크기가 유지되게 하려면 추가 로직 필요하지만 기본 구현 유지)
+        ctx.fillStyle = "white";
+        ctx.font = "12px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(planet.name, x, y + planet.radius + 15);
+
+        // 각도 업데이트 (공전)
+        planet.angle += planet.speed;
+    });
+
+    ctx.restore(); // 캔버스 상태 복구 (다음 프레임을 위해)
+
+    requestAnimationFrame(draw);
+}
+
+// 윈도우 리사이즈 대응
+window.addEventListener("resize", () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+});
+
+draw();
